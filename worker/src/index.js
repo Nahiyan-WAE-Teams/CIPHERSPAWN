@@ -1,5 +1,5 @@
 const YT = "https://www.googleapis.com/youtube/v3";
-const CACHE = caches.default;
+const CACHE = globalThis.caches?.default;
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 
 export default {
@@ -84,6 +84,8 @@ function safeError(error) {
 
 // Cache lookup happens BEFORE calling YouTube. A cache hit therefore costs zero YouTube API quota.
 async function cached(key, ttlSeconds, load) {
+  // Node-based unit tests do not provide the Workers Cache API. Bypass cache there.
+  if (!CACHE) return { data: await load(), hit: false };
   const hit = await CACHE.match(key);
   if (hit) return { data: await hit.json(), hit: true };
   const data = await load();
