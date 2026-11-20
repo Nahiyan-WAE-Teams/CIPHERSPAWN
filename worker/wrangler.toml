@@ -4,3 +4,9 @@ compatibility_date = "2025-01-15"
 
 [vars]
 CACHE_SECONDS = "300"
+
+[[unsafe.bindings]]
+name = "API_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
