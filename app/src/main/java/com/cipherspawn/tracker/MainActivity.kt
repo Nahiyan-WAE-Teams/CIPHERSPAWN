@@ -93,10 +93,10 @@ private fun CipherSpawnApp() {
         ) { settings ->
             if (settings) {
                 SettingsScreen(
-                    currentUrl = vm.baseUrl,
+                    currentApiKey = vm.apiKey,
                     autoRefresh = prefs.getBoolean("auto_refresh", false),
-                    onSave = { url, enabled ->
-                        vm.setBaseUrl(url)
+                    onSave = { apiKey, enabled ->
+                        vm.setApiKey(apiKey)
                         prefs.edit().putBoolean("auto_refresh", enabled).apply()
                         if (enabled) RefreshScheduler.enable(context) else RefreshScheduler.disable(context)
                         showSettings = false
@@ -345,23 +345,37 @@ private fun HistoryCard(history: List<ChannelSnapshot>) {
 
 @Composable
 private fun SettingsScreen(
-    currentUrl: String,
+    currentApiKey: String,
     autoRefresh: Boolean,
     onSave: (String, Boolean) -> Unit,
     onBack: () -> Unit
 ) {
-    var url by remember(currentUrl) { mutableStateOf(currentUrl) }
+    var apiKey by remember(currentApiKey) { mutableStateOf(currentApiKey) }
     var refreshEnabled by remember(autoRefresh) { mutableStateOf(autoRefresh) }
+    var showKey by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().background(Ink).verticalScroll(rememberScrollState()).padding(22.dp)) {
         Text("Settings", color = White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("Connect your secure API gateway. The YouTube API key stays on the server and is never packaged in the APK.",
+        Text("Use your own YouTube Data API v3 key. Each installation uses its own key and its own Google Cloud quota.",
             color = Muted, fontSize = 13.sp, lineHeight = 20.sp)
         Spacer(Modifier.height(22.dp))
-        Text("CLOUDFLARE WORKER URL", color = Cyan, fontSize = 10.sp, letterSpacing = 1.4.sp)
+        Text("YOUR YOUTUBE API KEY", color = Cyan, fontSize = 10.sp, letterSpacing = 1.4.sp)
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(value = url, onValueChange = { url = it }, modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("https://your-worker.workers.dev") }, singleLine = true)
+        OutlinedTextField(
+            value = apiKey, onValueChange = { apiKey = it },
+            modifier = Modifier.fillMaxWidth(), singleLine = true,
+            placeholder = { Text("Paste your API key") },
+            visualTransformation = if (showKey) androidx.compose.ui.text.input.VisualTransformation.None
+                else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            trailingIcon = {
+                TextButton(onClick = { showKey = !showKey }) {
+                    Text(if (showKey) "Hide" else "Show", color = Cyan)
+                }
+            }
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("Create a key in Google Cloud Console and enable YouTube Data API v3. Restrict the key to that API.",
+            color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
         Spacer(Modifier.height(22.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -372,7 +386,8 @@ private fun SettingsScreen(
             Switch(checked = refreshEnabled, onCheckedChange = { refreshEnabled = it })
         }
         Spacer(Modifier.height(22.dp))
-        Button(onClick = { onSave(url.trim(), refreshEnabled) }, modifier = Modifier.fillMaxWidth(),
+        Button(onClick = { onSave(apiKey.trim(), refreshEnabled) }, modifier = Modifier.fillMaxWidth(),
+            enabled = apiKey.isNotBlank(),
             colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Ink)) {
             Text("Save settings")
         }
