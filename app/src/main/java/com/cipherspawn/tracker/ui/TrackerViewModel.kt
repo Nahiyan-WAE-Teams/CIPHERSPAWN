@@ -12,6 +12,8 @@ import com.cipherspawn.tracker.data.TrackedChannel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -29,6 +31,10 @@ class TrackerViewModel(
     private val _state = MutableStateFlow<TrackerUiState>(TrackerUiState.Idle)
     val state: StateFlow<TrackerUiState> = _state
     val trackedChannels = dao.observeTracked().stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
+    )
+    private val selectedChannelId = MutableStateFlow<String?>(null)
+    val history = selectedChannelId.filterNotNull().flatMapLatest { dao.observeSnapshots(it) }.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
     )
 
@@ -57,6 +63,7 @@ class TrackerViewModel(
             try {
                 val repository = TrackerRepository(baseUrl)
                 val stats = repository.fetchChannel(query)
+                selectedChannelId.value = stats.channelId
                 dao.saveTracked(stats.toEntity())
                 dao.addSnapshot(
                     ChannelSnapshot(
@@ -93,6 +100,7 @@ class TrackerViewModel(
 
     fun openTracked(channel: TrackedChannel) {
         lastQuery = channel.channelId
+        selectedChannelId.value = channel.channelId
         _state.value = TrackerUiState.Ready(channel.toStats())
     }
 
