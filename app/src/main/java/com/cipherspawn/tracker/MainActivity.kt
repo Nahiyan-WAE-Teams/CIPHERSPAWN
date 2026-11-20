@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -41,6 +42,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cipherspawn.tracker.data.ChannelStats
 import com.cipherspawn.tracker.data.TrackedChannel
 import com.cipherspawn.tracker.data.TrackerDatabase
+import com.cipherspawn.tracker.data.RefreshScheduler
 import com.cipherspawn.tracker.ui.TrackerViewModel
 import com.cipherspawn.tracker.ui.TrackerViewModelFactory
 import com.cipherspawn.tracker.ui.TrackerUiState
@@ -64,6 +66,9 @@ private fun CipherSpawnApp() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("cipher_prefs", Context.MODE_PRIVATE) }
     val dao = remember { TrackerDatabase.get(context).trackerDao() }
+    LaunchedEffect(Unit) {
+        if (prefs.getBoolean("auto_refresh", false)) RefreshScheduler.enable(context)
+    }
     val vm: TrackerViewModel = viewModel(factory = TrackerViewModelFactory(prefs, dao))
     val state by vm.state.collectAsState()
     val tracked by vm.trackedChannels.collectAsState()
@@ -84,7 +89,13 @@ private fun CipherSpawnApp() {
             if (settings) {
                 SettingsScreen(
                     currentUrl = vm.baseUrl,
-                    onSave = { vm.setBaseUrl(it); showSettings = false },
+                    autoRefresh = prefs.getBoolean("auto_refresh", false),
+                    onSave = { url, enabled ->
+                        vm.setBaseUrl(url)
+                        prefs.edit().putBoolean("auto_refresh", enabled).apply()
+                        if (enabled) RefreshScheduler.enable(context) else RefreshScheduler.disable(context)
+                        showSettings = false
+                    },
                     onBack = { showSettings = false }
                 )
             } else {
@@ -290,9 +301,15 @@ private fun StatCard(label: String, value: String, note: String, modifier: Modif
 }
 
 @Composable
-private fun SettingsScreen(currentUrl: String, onSave: (String) -> Unit, onBack: () -> Unit) {
+private fun SettingsScreen(
+    currentUrl: String,
+    autoRefresh: Boolean,
+    onSave: (String, Boolean) -> Unit,
+    onBack: () -> Unit
+) {
     var url by remember(currentUrl) { mutableStateOf(currentUrl) }
-    Column(Modifier.fillMaxSize().background(Ink).padding(22.dp)) {
+    var refreshEnabled by remember(autoRefresh) { mutableStateOf(autoRefresh) }
+    Column(Modifier.fillMaxSize().background(Ink).verticalScroll(rememberScrollState()).padding(22.dp)) {
         Text("Settings", color = White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text("Connect your secure API gateway. The YouTube API key stays on the server and is never packaged in the APK.",
@@ -302,9 +319,20 @@ private fun SettingsScreen(currentUrl: String, onSave: (String) -> Unit, onBack:
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(value = url, onValueChange = { url = it }, modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("https://your-worker.workers.dev") }, singleLine = true)
-        Spacer(Modifier.height(18.dp))
-        Button(onClick = { onSave(url.trim()) }, modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Ink)) { Text("Save connection") }
+        Spacer(Modifier.height(22.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Automatic refresh", color = White, fontWeight = FontWeight.SemiBold)
+                Text("Refresh saved channels about every 6 hours on Wi-Fi or mobile data.",
+                    color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+            }
+            Switch(checked = refreshEnabled, onCheckedChange = { refreshEnabled = it })
+        }
+        Spacer(Modifier.height(22.dp))
+        Button(onClick = { onSave(url.trim(), refreshEnabled) }, modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Cyan, contentColor = Ink)) {
+            Text("Save settings")
+        }
         TextButton(onClick = onBack) { Text("Back", color = Muted) }
     }
 }
