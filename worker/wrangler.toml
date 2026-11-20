@@ -1,0 +1,6 @@
+name = "cipherspawn-api"
+main = "src/index.js"
+compatibility_date = "2025-01-15"
+
+[vars]
+CACHE_SECONDS = "300"
