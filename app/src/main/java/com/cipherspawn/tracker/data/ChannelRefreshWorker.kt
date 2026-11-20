@@ -11,9 +11,9 @@ class ChannelRefreshWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val prefs = applicationContext.getSharedPreferences("cipher_prefs", Context.MODE_PRIVATE)
-        val baseUrl = prefs.getString("worker_url", "").orEmpty()
-        if (!baseUrl.startsWith("https://")) return Result.success()
+        val prefs = SecurePrefs.get(applicationContext)
+        val apiKey = prefs.getString("youtube_api_key", "").orEmpty()
+        if (apiKey.isBlank()) return Result.success()
 
         val dao = TrackerDatabase.get(applicationContext).trackerDao()
         val tracked = dao.getAllTracked()
@@ -22,7 +22,7 @@ class ChannelRefreshWorker(
         var failures = 0
         for (saved in tracked) {
             try {
-                val latest = TrackerRepository(baseUrl).fetchChannel(saved.channelId)
+                val latest = TrackerRepository(apiKey).fetchChannel(saved.channelId)
                 dao.saveTracked(
                     TrackedChannel(
                         channelId = latest.channelId,
