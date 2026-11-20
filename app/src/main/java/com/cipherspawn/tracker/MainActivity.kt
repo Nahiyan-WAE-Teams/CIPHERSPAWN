@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cipherspawn.tracker.data.ChannelStats
+import com.cipherspawn.tracker.data.ChannelSnapshot
 import com.cipherspawn.tracker.data.TrackedChannel
 import com.cipherspawn.tracker.data.TrackerDatabase
 import com.cipherspawn.tracker.data.RefreshScheduler
@@ -72,6 +76,7 @@ private fun CipherSpawnApp() {
     val vm: TrackerViewModel = viewModel(factory = TrackerViewModelFactory(prefs, dao))
     val state by vm.state.collectAsState()
     val tracked by vm.trackedChannels.collectAsState()
+    val history by vm.history.collectAsState()
     var query by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
 
@@ -104,6 +109,7 @@ private fun CipherSpawnApp() {
                     onQuery = { query = it },
                     state = state,
                     tracked = tracked,
+                    history = history,
                     onSearch = { vm.loadChannel(query) },
                     onRefresh = { vm.refresh() },
                     onSettings = { showSettings = true },
@@ -121,6 +127,7 @@ private fun Dashboard(
     onQuery: (String) -> Unit,
     state: TrackerUiState,
     tracked: List<TrackedChannel>,
+    history: List<ChannelSnapshot>,
     onSearch: () -> Unit,
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
@@ -180,7 +187,7 @@ private fun Dashboard(
             when (current) {
                 is TrackerUiState.Loading -> LoadingPanel()
                 is TrackerUiState.Error -> ErrorPanel(current.message)
-                is TrackerUiState.Ready -> StatsContent(current.stats, onRefresh)
+                is TrackerUiState.Ready -> StatsContent(current.stats, history, onRefresh)
                 TrackerUiState.Idle -> WelcomePanel()
             }
         }
@@ -266,7 +273,7 @@ private fun ErrorPanel(message: String) {
 }
 
 @Composable
-private fun StatsContent(stats: ChannelStats, onRefresh: () -> Unit) {
+private fun StatsContent(stats: ChannelStats, history: List<ChannelSnapshot>, onRefresh: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -282,6 +289,7 @@ private fun StatsContent(stats: ChannelStats, onRefresh: () -> Unit) {
         StatCard("TOTAL VIEWS", stats.viewCount.formatCount(), "Public channel views", Modifier.fillMaxWidth())
         StatCard("PUBLIC VIDEO LIKES", stats.likesTotal?.formatCount() ?: "Scanning later",
             stats.likesStatus ?: "Separate scan · public counts only", Modifier.fillMaxWidth())
+        HistoryCard(history)
         Text("Last updated: ${stats.updatedAt}", color = Muted, fontSize = 10.sp)
         Text("Likes are a sum of individual public video like counts, not an official channel-wide YouTube metric. Partial scans are labelled.",
             color = Muted, fontSize = 11.sp, lineHeight = 17.sp)
@@ -297,6 +305,41 @@ private fun StatCard(label: String, value: String, note: String, modifier: Modif
         Text(value, color = White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
         Text(note, color = Muted, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun HistoryCard(history: List<ChannelSnapshot>) {
+    Column(
+        Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(20.dp))
+            .border(1.dp, Color.White.copy(alpha = .06f), RoundedCornerShape(20.dp)).padding(17.dp)
+    ) {
+        Text("VIEW HISTORY", color = Muted, fontSize = 9.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        if (history.size < 2) {
+            Text("Your trend line will appear after another refresh.", color = Muted, fontSize = 12.sp)
+        } else {
+            val points = history.reversed()
+            val first = points.first().viewCount
+            val last = points.last().viewCount
+            Canvas(Modifier.fillMaxWidth().height(92.dp)) {
+                val values = points.map { it.viewCount.toFloat() }
+                val low = values.minOrNull() ?: 0f
+                val high = values.maxOrNull() ?: 0f
+                val range = (high - low).takeIf { it > 0f } ?: 1f
+                val path = Path()
+                values.forEachIndexed { index, value ->
+                    val x = if (values.size == 1) 0f else size.width * index / (values.size - 1)
+                    val y = size.height - ((value - low) / range * (size.height - 12.dp.toPx())) - 6.dp.toPx()
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, color = Cyan, style = Stroke(width = 3.dp.toPx()))
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Earlier: ${first.formatCount()}", color = Muted, fontSize = 10.sp)
+                Text("Latest: ${last.formatCount()}", color = Cyan, fontSize = 10.sp)
+            }
+        }
     }
 }
 
