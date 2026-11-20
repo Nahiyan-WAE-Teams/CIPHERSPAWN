@@ -55,20 +55,9 @@ class TrackerViewModel(
         viewModelScope.launch {
             _state.value = TrackerUiState.Loading
             try {
-                val stats = TrackerRepository(baseUrl).fetchChannel(query)
-                dao.saveTracked(
-                    TrackedChannel(
-                        channelId = stats.channelId,
-                        title = stats.title,
-                        handle = stats.handle,
-                        subscriberCount = stats.subscriberCount,
-                        videoCount = stats.videoCount,
-                        viewCount = stats.viewCount,
-                        likesTotal = stats.likesTotal,
-                        likesStatus = stats.likesStatus,
-                        updatedAt = stats.updatedAt
-                    )
-                )
+                val repository = TrackerRepository(baseUrl)
+                val stats = repository.fetchChannel(query)
+                dao.saveTracked(stats.toEntity())
                 dao.addSnapshot(
                     ChannelSnapshot(
                         channelId = stats.channelId,
@@ -78,30 +67,33 @@ class TrackerViewModel(
                         videoCount = stats.videoCount
                     )
                 )
-                _state.value = TrackerUiState.Ready(stats)
+                if (lastQuery == query) _state.value = TrackerUiState.Ready(stats)
+
+                // Likes are a separate, quota-expensive scan. Do not block the core channel dashboard.
+                runCatching { repository.fetchLikes(stats.channelId) }
+                    .onSuccess { likes ->
+                        val enriched = stats.copy(likesTotal = likes.total, likesStatus = likes.status)
+                        dao.saveTracked(enriched.toEntity())
+                        if (lastQuery == query) _state.value = TrackerUiState.Ready(enriched)
+                    }
+                    .onFailure {
+                        val unavailable = stats.copy(likesStatus = "Likes scan unavailable · channel stats are unaffected")
+                        dao.saveTracked(unavailable.toEntity())
+                        if (lastQuery == query) _state.value = TrackerUiState.Ready(unavailable)
+                    }
             } catch (e: Exception) {
-                _state.value = TrackerUiState.Error(
-                    e.message ?: "Could not load this channel. Check your connection and try again."
-                )
+                if (lastQuery == query) {
+                    _state.value = TrackerUiState.Error(
+                        e.message ?: "Could not load this channel. Check your connection and try again."
+                    )
+                }
             }
         }
     }
 
     fun openTracked(channel: TrackedChannel) {
         lastQuery = channel.channelId
-        _state.value = TrackerUiState.Ready(
-            ChannelStats(
-                channelId = channel.channelId,
-                title = channel.title,
-                handle = channel.handle,
-                subscriberCount = channel.subscriberCount,
-                videoCount = channel.videoCount,
-                viewCount = channel.viewCount,
-                likesTotal = channel.likesTotal,
-                likesStatus = channel.likesStatus,
-                updatedAt = channel.updatedAt
-            )
-        )
+        _state.value = TrackerUiState.Ready(channel.toStats())
     }
 
     fun removeTracked(channelId: String) {
@@ -111,6 +103,16 @@ class TrackerViewModel(
     fun refresh() {
         if (lastQuery.isNotBlank()) loadChannel(lastQuery)
     }
+
+    private fun ChannelStats.toEntity() = TrackedChannel(
+        channelId, title, handle, subscriberCount, videoCount, viewCount,
+        likesTotal, likesStatus, updatedAt
+    )
+
+    private fun TrackedChannel.toStats() = ChannelStats(
+        channelId, title, handle, subscriberCount, videoCount, viewCount,
+        likesTotal, likesStatus, updatedAt
+    )
 }
 
 class TrackerViewModelFactory(
