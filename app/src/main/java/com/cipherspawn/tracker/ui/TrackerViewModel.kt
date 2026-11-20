@@ -38,13 +38,13 @@ class TrackerViewModel(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
     )
 
-    var baseUrl: String = prefs.getString("worker_url", "") ?: ""
+    var apiKey: String = prefs.getString("youtube_api_key", "") ?: ""
         private set
     private var lastQuery: String = ""
 
-    fun setBaseUrl(value: String) {
-        baseUrl = value.trim().trimEnd('/')
-        prefs.edit().putString("worker_url", baseUrl).apply()
+    fun setApiKey(value: String) {
+        apiKey = value.trim()
+        prefs.edit().putString("youtube_api_key", apiKey).apply()
     }
 
     fun loadChannel(input: String) {
@@ -53,15 +53,15 @@ class TrackerViewModel(
             _state.value = TrackerUiState.Error("Paste a channel URL, @handle, or channel ID.")
             return
         }
-        if (!baseUrl.startsWith("https://")) {
-            _state.value = TrackerUiState.Error("Connect the secure API gateway in Settings first.")
+        if (apiKey.isBlank()) {
+            _state.value = TrackerUiState.Error("Add your YouTube Data API key in Settings first.")
             return
         }
         lastQuery = query
         viewModelScope.launch {
             _state.value = TrackerUiState.Loading
             try {
-                val repository = TrackerRepository(baseUrl)
+                val repository = TrackerRepository(apiKey)
                 val stats = repository.fetchChannel(query)
                 selectedChannelId.value = stats.channelId
                 dao.saveTracked(stats.toEntity())
