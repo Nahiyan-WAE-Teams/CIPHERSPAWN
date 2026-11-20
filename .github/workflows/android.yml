@@ -1,4 +1,4 @@
-name: Android build
+name: Android and API checks
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  android:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,5 +25,23 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Run Android unit tests
+        run: gradle testDebugUnitTest
       - name: Build debug APK
         run: gradle assembleDebug
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Worker dependencies
+        working-directory: worker
+        run: npm install
+      - name: Run Worker tests
+        working-directory: worker
+        run: npm test
