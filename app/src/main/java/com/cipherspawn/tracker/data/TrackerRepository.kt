@@ -8,63 +8,67 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+data class LikesSummary(val total: Long, val status: String)
+
 class TrackerRepository(private val baseUrl: String) {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .callTimeout(35, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
     suspend fun fetchChannel(input: String): ChannelStats = withContext(Dispatchers.IO) {
-        require(baseUrl.startsWith("https://")) { "Set your HTTPS Worker URL in Settings first." }
+        require(baseUrl.startsWith("https://")) { "Set a valid HTTPS Worker URL in Settings first." }
         val encoded = java.net.URLEncoder.encode(input.trim(), "UTF-8")
-        val channelJson = getJson("/api/channel?channel=$encoded")
-        val likesJson = runCatching {
-            getJson("/api/likes?channelId=${channelJson.getString("channelId")}&maxVideos=500")
-        }.getOrNull()
-
+        val data = getJson("/api/channel?channel=$encoded")
         ChannelStats(
-            channelId = channelJson.getString("channelId"),
-            title = channelJson.getString("title"),
-            handle = channelJson.optString("handle").takeIf { it.isNotBlank() && it != "null" },
-            subscriberCount = if (channelJson.has("subscriberCount") && !channelJson.isNull("subscriberCount")) channelJson.getLong("subscriberCount") else null,
-            videoCount = channelJson.optLong("videoCount"),
-            viewCount = channelJson.optLong("viewCount"),
-            likesTotal = likesJson?.optLong("likesTotal"),
-            likesStatus = likesJson?.let {
-                val scanned = it.optInt("scannedVideos")
-                if (it.optBoolean("complete")) "All public videos scanned ($scanned)"
-                else "Partial scan: $scanned videos"
-            } ?: "Likes scan unavailable; channel stats are still loaded",
-            updatedAt = channelJson.optString("updatedAt", "Just now")
+            channelId = data.getString("channelId"),
+            title = data.getString("title"),
+            handle = data.optString("handle").takeIf { it.isNotBlank() && it != "null" },
+            subscriberCount = if (data.has("subscriberCount") && !data.isNull("subscriberCount")) data.getLong("subscriberCount") else null,
+            videoCount = data.optLong("videoCount"),
+            viewCount = data.optLong("viewCount"),
+            likesTotal = null,
+            likesStatus = "Public likes scan queued",
+            updatedAt = data.optString("updatedAt", "Just now")
         )
     }
 
+    suspend fun fetchLikes(channelId: String): LikesSummary = withContext(Dispatchers.IO) {
+        val data = getJson("/api/likes?channelId=$channelId&maxVideos=100")
+        val listed = data.optInt("videosListed")
+        val withLikes = data.optInt("videosWithLikeCount")
+        val status = buildString {
+            append(if (data.optBoolean("complete")) "All public uploads checked" else "Partial scan")
+            append(" · $listed videos checked · $withLikes with public like counts")
+        }
+        LikesSummary(data.optLong("likesTotal"), status)
+    }
+
     private fun getJson(path: String): JSONObject {
-        var lastError: IOException? = null
+        var lastRetryable: IOException? = null
         repeat(3) { attempt ->
             try {
                 val request = Request.Builder().url(baseUrl.trimEnd('/') + path).get().build()
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string().orEmpty()
-                    if (response.isSuccessful) {
-                        val json = JSONObject(body)
-                        if (json.optBoolean("errorFlag")) throw IOException(json.optString("error"))
-                        return json
-                    }
+                    if (response.isSuccessful) return JSONObject(body)
+                    val message = runCatching { JSONObject(body).optString("error") }.getOrNull()
+                        ?.takeIf { it.isNotBlank() } ?: "Request failed (HTTP ${response.code})."
                     if (response.code == 429 || response.code >= 500) {
-                        lastError = IOException("Server is busy (HTTP ${response.code}). Try again shortly.")
+                        lastRetryable = IOException(message)
                     } else {
-                        val message = runCatching { JSONObject(body).optString("error") }.getOrNull()
-                        throw IOException(message?.takeIf { it.isNotBlank() } ?: "Request failed (HTTP ${response.code}).")
+                        throw IllegalArgumentException(message)
                     }
                 }
+            } catch (e: IllegalArgumentException) {
+                throw e
             } catch (e: IOException) {
-                lastError = e
+                lastRetryable = e
             }
-            if (attempt < 2) Thread.sleep(500L * (attempt + 1))
+            if (attempt < 2) Thread.sleep(400L * (attempt + 1))
         }
-        throw lastError ?: IOException("Network request failed.")
+        throw lastRetryable ?: IOException("Network request failed.")
     }
 }
