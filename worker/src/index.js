@@ -15,6 +15,11 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     if (request.method !== "GET") return json({ error: "Method not allowed." }, 405, cors);
     if (!env.YOUTUBE_API_KEY) return json({ error: "The YouTube API key is not configured on the server." }, 503, cors);
+    if (env.API_RATE_LIMITER) {
+      const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
+      const { success } = await env.API_RATE_LIMITER.limit({ key: clientIp });
+      if (!success) return json({ error: "Too many requests. Wait a minute and try again." }, 429, cors);
+    }
 
     try {
       if (url.pathname === "/api/health") {
@@ -173,3 +178,5 @@ async function sumPublicLikes(channelId, maxVideos, apiKey) {
     source: "YouTube Data API v3"
   };
 }
+
+export { parseChannelInput };
