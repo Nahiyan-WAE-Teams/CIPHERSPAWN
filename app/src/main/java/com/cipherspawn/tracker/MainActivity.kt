@@ -47,6 +47,7 @@ import com.cipherspawn.tracker.data.ChannelSnapshot
 import com.cipherspawn.tracker.data.TrackedChannel
 import com.cipherspawn.tracker.data.TrackerDatabase
 import com.cipherspawn.tracker.data.RefreshScheduler
+import com.cipherspawn.tracker.data.SecurePrefs
 import com.cipherspawn.tracker.ui.TrackerViewModel
 import com.cipherspawn.tracker.ui.TrackerViewModelFactory
 import com.cipherspawn.tracker.ui.TrackerUiState
@@ -68,7 +69,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun CipherSpawnApp() {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("cipher_prefs", Context.MODE_PRIVATE) }
+    val prefs = remember { SecurePrefs.get(context) }
     val dao = remember { TrackerDatabase.get(context).trackerDao() }
     LaunchedEffect(Unit) {
         if (prefs.getBoolean("auto_refresh", false)) RefreshScheduler.enable(context)
